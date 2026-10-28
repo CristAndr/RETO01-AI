@@ -1,0 +1,40 @@
+# Blueprint de Render: servicio web Node con proceso persistente (sesiones en memoria y out/).
+# Los secretos (GROQ_API_KEY, ACCESS_KEY) se cargan en el panel de Render: sync:false
+# significa que Render los pide al crear el servicio y nunca quedan en el repositorio.
+services:
+  - type: web
+    name: reto01-registro-proveedor
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run typecheck && npm run demo
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ACCESS_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FECHA_EJECUCION
+        value: "2026-09-25"
+      - key: MAX_ITER
+        value: "25"
+      - key: MAX_TOKENS_SESION
+        value: "150000"
+      - key: RATE_LIMIT_POR_MIN
+        value: "10"
+      - key: LLM_TIMEOUT_MS
+        value: "60000"
+      - key: GMAIL_ENABLED
+        value: "false"
