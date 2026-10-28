@@ -37,7 +37,7 @@ app.use("*", async (c, next) => {
   c.header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
 })
 
-app.get("/api/health", (c) => c.json({ ok: true, provider: config.proveedor, model: config.modelo, correo: Boolean(remitente), release: "hitl-server-v2" }))
+app.get("/api/health", (c) => c.json({ ok: true, provider: config.proveedor, model: config.modelo, correo: Boolean(remitente), release: "hitl-server-v3" }))
 
 // Inicio de sesión (HU-9): /api/sesion, /api/login y /api/logout.
 app.use("/api/login", bodyLimit({ maxSize: 2 * 1024, onError: (c) => c.json({ ok: false, error: "Petición demasiado grande." }, 413) }))

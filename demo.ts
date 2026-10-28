@@ -16,7 +16,10 @@ import * as proveedor from "./src/tools/proveedor.ts"
 import { buscarHerramienta } from "./src/tools/registro.ts"
 import * as moduloTools from "./modulo/tools/proveedor.ts"
 import { contenidoModulo } from "./scripts/sync-modulo.ts"
+import { ejecutarTurno } from "./src/agent/ciclo.ts"
+import { obtenerSesion } from "./src/agent/sesiones.ts"
 import { claveCorrecta, crearToken, verificarToken } from "./src/domain/sesion-web.ts"
+import type { LlmAdapter } from "./src/llm/adapter.ts"
 
 const raiz = path.dirname(fileURLToPath(import.meta.url))
 const ctx = { directory: raiz, sessionId: "demo" }
@@ -72,6 +75,20 @@ async function procesarCaso(caso: string): Promise<void> {
   const borrador = await readFile(path.join(raiz, "out", caso, "paquete", "borrador-correo.md"), "utf8")
   verificar(!borrador.includes("03100012345") && !/COLOCOBM|Bancolombia/.test(borrador), "RN2: borrador sin datos bancarios")
   if (e.formato === "portal") verificar(gen.data.soportado === false, "portal: formato no soportado + valores-portal.md")
+}
+
+async function pruebaRegresionHitl(): Promise<void> {
+  console.log("\n■ Regresión HITL de ciclo")
+  const modeloProhibido: LlmAdapter = {
+    proveedor: "prueba",
+    modelo: "sin-llamadas",
+    async enviar() { throw new Error("el modelo no debe invocarse para un envío sin confirmación pendiente") },
+  }
+  const sesion = obtenerSesion("regresion-hitl-bloqueada")
+  const primera = await ejecutarTurno(sesion, 'Procesa el caso "ec-corp-andina". No envíes nada todavía.', modeloProhibido, raiz)
+  verificar(!primera.needsConfirmation, "paquete no listo no crea confirmación pendiente")
+  const envio = await ejecutarTurno(sesion, "envía", modeloProhibido, raiz)
+  verificar(envio.toolCalls.length === 0 && /No hay un paquete listo pendiente/.test(envio.reply), "envío sin confirmación pendiente no invoca herramientas ni modelo")
 }
 
 async function pruebasDeError(): Promise<void> {
@@ -180,6 +197,7 @@ async function main(): Promise<void> {
   await verificarFixtures("antes de ejecutar")
   const casos = (await readdir(path.join(raiz, "fixtures", "reto-01", "casos"))).sort()
   for (const caso of casos) await procesarCaso(caso)
+  await pruebaRegresionHitl()
   await pruebasDeError()
   console.log("\n■ Inicio de sesión (HU-9): token firmado sin base de datos")
   const secreto = "s".repeat(32)
