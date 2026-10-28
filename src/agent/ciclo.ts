@@ -67,6 +67,10 @@ function casoSolicitado(texto: string): string | undefined {
   return texto.match(/\b(?:co-industrias-delta|ec-corp-andina|hn-agroexport-sula|pa-logistica-istmo)\b/i)?.[0]?.toLowerCase()
 }
 
+function pendientePrevioDesdeVigente(sesion: Sesion): boolean {
+  return sesion.pendienteDesde !== undefined && Date.now() - sesion.pendienteDesde < VIGENCIA_CONFIRMACION_MS
+}
+
 async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz: string, remitente?: Remitente): Promise<{ contenido: string; visible: ToolCallVisible }> {
   const herramienta = buscarHerramienta(llamada.nombre)
   const contenido = herramienta
@@ -122,8 +126,19 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
   if (sesion.tokens >= config.maxTokensSesion) {
     reply = `Esta sesión alcanzó el tope de ${config.maxTokensSesion} tokens. Abre una sesión nueva para continuar.`
   } else {
+    const pendientePrevio = sesion.pendiente
+    const confirmacionValida = Boolean(pendientePrevio && pendientePrevioDesdeVigente(sesion) && esConfirmacion(texto))
     procesarConfirmacion(sesion, texto)
     sesion.mensajes.push({ rol: "user", texto })
+    if (confirmacionValida && pendientePrevio) {
+      const llamada = { id: `servidor_proveedor_simular_envio_${Date.now()}`, nombre: "proveedor_simular_envio", args: { caso: pendientePrevio, confirmado: true } }
+      const { contenido, visible } = await ejecutarLlamada(sesion, llamada, raiz, remitente)
+      sesion.mensajes.push({ rol: "tool", id: llamada.id, nombre: llamada.nombre, contenido })
+      toolCalls.push(visible)
+      reply = visible.ok ? `Envío simulado generado en ${visible.resumen.replace(/^envío simulado en /, "")}.` : visible.resumen
+    } else if (!pendientePrevio && esConfirmacion(texto)) {
+      reply = "No hay un paquete listo pendiente de confirmación. Procesa un caso antes de solicitar el envío."
+    }
     const caso = casoSolicitado(texto)
     if (caso) {
       const secuencia = [
@@ -153,7 +168,7 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
         const bloqueos = paquetePreparado?.checklist?.soportes?.filter((soporte) => soporte.estado === "ausente" || soporte.estado === "vencido").map((soporte) => `${soporte.tipo} (${soporte.estado})`) ?? []
         reply = `El paquete de ${caso} quedó preparado, pero no está listo para firma. Corrige: ${[...bloqueos, ...faltantes].join(", ") || "los hallazgos del checklist"}. No se habilitó ningún envío.`
       }
-    } else try {
+    } else if (!reply) try {
       const system: Mensaje = { rol: "system", texto: await systemPrompt(raiz, Boolean(remitente)) }
       let terminado = false
       for (let i = 0; i < config.maxIter && !terminado; i++) {
