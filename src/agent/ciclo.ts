@@ -136,6 +136,8 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
       sesion.mensajes.push({ rol: "tool", id: llamada.id, nombre: llamada.nombre, contenido })
       toolCalls.push(visible)
       reply = visible.ok ? `Envío simulado generado en ${visible.resumen.replace(/^envío simulado en /, "")}.` : visible.resumen
+    } else if (pendientePrevio && esConfirmacion(texto)) {
+      reply = "La confirmación del paquete caducó. Procesa nuevamente el caso antes de solicitar el envío."
     } else if (!pendientePrevio && esConfirmacion(texto)) {
       reply = "No hay un paquete listo pendiente de confirmación. Procesa un caso antes de solicitar el envío."
     }

@@ -89,6 +89,12 @@ async function pruebaRegresionHitl(): Promise<void> {
   verificar(!primera.needsConfirmation, "paquete no listo no crea confirmación pendiente")
   const envio = await ejecutarTurno(sesion, "envía", modeloProhibido, raiz)
   verificar(envio.toolCalls.length === 0 && /No hay un paquete listo pendiente/.test(envio.reply), "envío sin confirmación pendiente no invoca herramientas ni modelo")
+
+  const caducada = obtenerSesion("regresion-hitl-caducada")
+  caducada.pendiente = "co-industrias-delta"
+  caducada.pendienteDesde = Date.now() - 10 * 60_000 - 1
+  const envioCaducado = await ejecutarTurno(caducada, "envía", modeloProhibido, raiz)
+  verificar(envioCaducado.toolCalls.length === 0 && /confirmación del paquete caducó/.test(envioCaducado.reply), "confirmación caducada no invoca herramientas ni modelo")
 }
 
 async function pruebasDeError(): Promise<void> {
