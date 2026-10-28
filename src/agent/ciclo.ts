@@ -86,7 +86,7 @@ async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz
     sesion.ofrecerCorreo = true
   }
   const reglas = await leerReglas(raiz).catch(() => undefined)
-  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args, reglas?.claves_bancarias), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error", resultado: r.ok ? r.data : { error: r.error ?? "error" } }
+  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args, reglas?.claves_bancarias), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error" }
   return { contenido, visible }
 }
 
@@ -115,6 +115,7 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
   const ts = new Date().toISOString()
   sesion.historial.push({ rol: "user", texto, ts })
   const toolCalls: ToolCallVisible[] = []
+  let paquetePreparado: { listo_para_firma?: boolean; checklist?: { faltantes?: string[]; soportes?: { tipo: string; estado: string }[] } } | undefined
   let reply = ""
   sesion.ofrecerCorreo = false
 
@@ -136,17 +137,20 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
         const { contenido, visible } = await ejecutarLlamada(sesion, llamada, raiz, remitente)
         sesion.mensajes.push({ rol: "tool", id: llamada.id, nombre: llamada.nombre, contenido })
         toolCalls.push(visible)
+        if (paso.nombre === "proveedor_armar_paquete" && visible.ok) {
+          const resultadoPaquete = JSON.parse(contenido) as { data?: typeof paquetePreparado }
+          paquetePreparado = resultadoPaquete.data
+        }
         if (!visible.ok) break
       }
-      const paquete = toolCalls.find((tool) => tool.nombre === "proveedor_armar_paquete")?.resultado as { data?: { listo_para_firma?: boolean; checklist?: { faltantes?: string[]; soportes?: { tipo: string; estado: string }[] } } } | undefined
-      const listo = paquete?.data?.listo_para_firma === true
+      const listo = paquetePreparado?.listo_para_firma === true
       if (listo) {
         sesion.pendiente = caso
         sesion.pendienteDesde = Date.now()
         reply = `El paquete de ${caso} quedó listo para firma. Revisa el checklist. ¿Confirmas simular el envío?`
       } else {
-        const faltantes = paquete?.data?.checklist?.faltantes ?? []
-        const bloqueos = paquete?.data?.checklist?.soportes?.filter((soporte) => soporte.estado === "ausente" || soporte.estado === "vencido").map((soporte) => `${soporte.tipo} (${soporte.estado})`) ?? []
+        const faltantes = paquetePreparado?.checklist?.faltantes ?? []
+        const bloqueos = paquetePreparado?.checklist?.soportes?.filter((soporte) => soporte.estado === "ausente" || soporte.estado === "vencido").map((soporte) => `${soporte.tipo} (${soporte.estado})`) ?? []
         reply = `El paquete de ${caso} quedó preparado, pero no está listo para firma. Corrige: ${[...bloqueos, ...faltantes].join(", ") || "los hallazgos del checklist"}. No se habilitó ningún envío.`
       }
     } else try {

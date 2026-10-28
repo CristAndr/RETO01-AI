@@ -5,7 +5,6 @@ export interface ToolCallVisible {
   args: unknown
   ok: boolean
   resumen: string
-  resultado?: unknown
 }
 
 export interface EntradaHistorial {
