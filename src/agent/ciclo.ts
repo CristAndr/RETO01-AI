@@ -139,7 +139,7 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
     } else if (!pendientePrevio && esConfirmacion(texto)) {
       reply = "No hay un paquete listo pendiente de confirmación. Procesa un caso antes de solicitar el envío."
     }
-    if (!pendientePrevio && /\b(envia|envialo|enviar)\b/i.test(texto.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) {
+    if (!pendientePrevio && /^\s*env/i.test(texto)) {
       reply = "No hay un paquete listo pendiente de confirmación. No se ejecutó ningún envío."
     }
     const caso = casoSolicitado(texto)

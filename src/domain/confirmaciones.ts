@@ -54,7 +54,7 @@ const NEGATIVO = /\b(no|todavia no|aun no|cancela|espera|detente)\b/
 export function esConfirmacion(mensaje: string): boolean {
   const texto = mensaje
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z ]+/g, " ")
     .trim()
