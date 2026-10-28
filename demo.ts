@@ -10,6 +10,7 @@ import ExcelJS from "exceljs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { otorgarConfirmacion, otorgarPermiso } from "./src/domain/confirmaciones.ts"
+import { valorParaFormulario, type Mapeo } from "./src/domain/mapeo.ts"
 import type { Correo, Remitente } from "./src/domain/correo.ts"
 import * as proveedor from "./src/tools/proveedor.ts"
 import { buscarHerramienta } from "./src/tools/registro.ts"
@@ -20,10 +21,10 @@ import { claveCorrecta, crearToken, verificarToken } from "./src/domain/sesion-w
 const raiz = path.dirname(fileURLToPath(import.meta.url))
 const ctx = { directory: raiz, sessionId: "demo" }
 
-interface Campo { etiqueta: string; nota?: string }
+interface Campo { etiqueta: string; nota?: string; estado?: "lleno" | "faltante" | "requiere_confirmacion"; ruta?: string; valor?: string; confianza?: number }
 interface Resp<T> { ok: boolean; error: string; data: T }
 type Solicitud = { campos: string[]; formato: string; resumen: string }
-type MapeoR = { llenos: Campo[]; faltantes: Campo[]; requiere_confirmacion: Campo[]; resumen: string }
+type MapeoR = Mapeo & { resumen: string }
 type Formulario = { soportado: boolean; resumen: string }
 type Paquete = { listo_para_firma: boolean; resumen: string; checklist: { problema_formulario?: string } }
 type Log = { ts?: string; herramienta?: string; ok?: boolean; resumen?: string }
@@ -65,6 +66,9 @@ async function procesarCaso(caso: string): Promise<void> {
   verificar(map.data.llenos.length === e.llenos && map.data.faltantes.length === e.faltantes && map.data.requiere_confirmacion.length === e.confirmar,
     `conteos ${e.llenos}/${e.faltantes}/${e.confirmar}`)
   verificar(paq.data.listo_para_firma === e.listo, `listo_para_firma = ${e.listo}`)
+  for (const campo of map.data.requiere_confirmacion.filter((c) => /RUC|RTN/.test(c.etiqueta))) {
+    verificar(valorParaFormulario(map.data, campo.etiqueta) === "", `${campo.etiqueta} extranjero no se prellena`)
+  }
   const borrador = await readFile(path.join(raiz, "out", caso, "paquete", "borrador-correo.md"), "utf8")
   verificar(!borrador.includes("03100012345") && !/COLOCOBM|Bancolombia/.test(borrador), "RN2: borrador sin datos bancarios")
   if (e.formato === "portal") verificar(gen.data.soportado === false, "portal: formato no soportado + valores-portal.md")
@@ -78,32 +82,35 @@ async function pruebasDeError(): Promise<void> {
   const traversal = parse(await buscarHerramienta("proveedor_leer_solicitud")!.ejecutar({ caso: "../../etc" }, ctx))
   verificar(!traversal.ok && /argumentos inválidos/.test(traversal.error), "path traversal rechazado por zod")
 
-  const sinConfirmar = parse(await proveedor.simular_envio.execute({ caso: "ec-corp-andina", confirmado: true }, ctx))
+  const sinConfirmar = parse(await proveedor.simular_envio.execute({ caso: "co-industrias-delta", confirmado: true }, ctx))
   verificar(!sinConfirmar.ok && sinConfirmar.error === "requiere confirmación explícita", "envío sin confirmación humana rechazado aunque confirmado=true")
 
   otorgarConfirmacion("demo", "ec-corp-andina")
-  const confirmado = parse(await proveedor.simular_envio.execute({ caso: "ec-corp-andina", confirmado: true }, ctx))
+  const bloqueado = parse(await proveedor.simular_envio.execute({ caso: "ec-corp-andina", confirmado: true }, ctx))
+  verificar(!bloqueado.ok && /no está listo/.test(bloqueado.error), "paquete no listo no se envía aunque haya confirmación")
+  otorgarConfirmacion("demo", "co-industrias-delta")
+  const confirmado = parse(await proveedor.simular_envio.execute({ caso: "co-industrias-delta", confirmado: true }, ctx))
   verificar(confirmado.ok, "envío con confirmación → ENVIO-SIMULADO.md")
-  const repetido = parse(await proveedor.simular_envio.execute({ caso: "ec-corp-andina", confirmado: true }, ctx))
+  const repetido = parse(await proveedor.simular_envio.execute({ caso: "co-industrias-delta", confirmado: true }, ctx))
   verificar(!repetido.ok, "la confirmación es de un solo uso")
 
   console.log("\n■ Copia por correo (HU-7) con remitente falso: nunca sale a la red")
   const enviados: Correo[] = []
   const falso: Remitente = { async enviar(c) { enviados.push(c); return { id: "falso" } } }
   const ctxCorreo = { ...ctx, remitente: falso }
-  const sinPermiso = parse(await proveedor.enviar_correo.execute({ caso: "ec-corp-andina", destinatario: "evaluador@empresa.com" }, ctxCorreo))
+  const sinPermiso = parse(await proveedor.enviar_correo.execute({ caso: "co-industrias-delta", destinatario: "evaluador@empresa.com" }, ctxCorreo))
   verificar(!sinPermiso.ok && /último mensaje/.test(sinPermiso.error), "destinatario que el usuario no escribió → rechazado")
-  const inyeccion = parse(await proveedor.enviar_correo.execute({ caso: "ec-corp-andina", destinatario: "a@b.com\r\nBcc: x@y.com" }, ctxCorreo))
+  const inyeccion = parse(await proveedor.enviar_correo.execute({ caso: "co-industrias-delta", destinatario: "a@b.com\r\nBcc: x@y.com" }, ctxCorreo))
   verificar(!inyeccion.ok, "intento de inyectar cabeceras en el destinatario → rechazado")
   otorgarPermiso("demo", "correo", "evaluador@empresa.com")
-  const noConfigurado = parse(await proveedor.enviar_correo.execute({ caso: "ec-corp-andina", destinatario: "evaluador@empresa.com" }, ctx))
+  const noConfigurado = parse(await proveedor.enviar_correo.execute({ caso: "co-industrias-delta", destinatario: "evaluador@empresa.com" }, ctx))
   verificar(!noConfigurado.ok && /no configurado/.test(noConfigurado.error), "sin Gmail configurado → \"envío por correo no configurado\"")
   otorgarPermiso("demo", "correo", "evaluador@empresa.com")
-  const enviado = parse(await proveedor.enviar_correo.execute({ caso: "ec-corp-andina", destinatario: "Evaluador@Empresa.com" }, ctxCorreo))
+  const enviado = parse(await proveedor.enviar_correo.execute({ caso: "co-industrias-delta", destinatario: "Evaluador@Empresa.com" }, ctxCorreo))
   const contenido = enviados.flatMap((c) => c.adjuntos.map((a) => a.contenido.toString("latin1"))).join("\n") + (enviados[0]?.texto ?? "")
   verificar(enviado.ok && enviados.length === 1 && enviados[0]?.para === "evaluador@empresa.com", "con permiso y remitente → 1 correo al destinatario escrito")
   verificar(!contenido.includes("03100012345") && !contenido.includes("COLOCOBM"), "RN2: adjuntos y cuerpo sin datos bancarios")
-  const reuso = parse(await proveedor.enviar_correo.execute({ caso: "ec-corp-andina", destinatario: "evaluador@empresa.com" }, ctxCorreo))
+  const reuso = parse(await proveedor.enviar_correo.execute({ caso: "co-industrias-delta", destinatario: "evaluador@empresa.com" }, ctxCorreo))
   verificar(!reuso.ok && enviados.length === 1, "el permiso de correo es de un solo uso")
 
   // RN2 verificado leyendo las celdas del xlsx adjunto (no los bytes comprimidos).

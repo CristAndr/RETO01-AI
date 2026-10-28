@@ -3,6 +3,7 @@ import path from "node:path"
 import { config } from "../config.ts"
 import { correoDelMensaje, esConfirmacion, otorgarConfirmacion, otorgarPermiso, revocarPermisos } from "../domain/confirmaciones.ts"
 import type { Remitente } from "../domain/correo.ts"
+import { esClaveBancaria, leerReglas } from "../domain/reglas.ts"
 import { mensajeDeError } from "../domain/resultado.ts"
 import type { DefinicionHerramienta, LlamadaHerramienta, LlmAdapter, Mensaje } from "../llm/adapter.ts"
 import { buscarHerramienta, herramientas } from "../tools/registro.ts"
@@ -39,9 +40,22 @@ async function systemPrompt(raiz: string, conCorreo: boolean): Promise<string> {
   return `${conCorreo ? prompt : sinSeccionCorreo(prompt)}\n\n---\n\n# Conocimiento del proceso\n\n${conocimiento}`
 }
 
-/** Oculta números largos (cuentas bancarias) en lo que se muestra en el chat. */
-export function enmascarar(valor: unknown): unknown {
-  return JSON.parse(JSON.stringify(valor ?? null).replace(/\b\d{6,}(\d{4})\b/g, "******$1"))
+/** Oculta valores bancarios y números largos en lo que se muestra en el chat. */
+export function enmascarar(valor: unknown, clavesBancarias: string[] = []): unknown {
+  const ocultar = (dato: unknown): unknown => {
+    if (Array.isArray(dato)) return dato.map(ocultar)
+    if (typeof dato === "object" && dato !== null) {
+      const registro = dato as Record<string, unknown>
+      const etiqueta = typeof registro.etiqueta === "string" ? registro.etiqueta.toLowerCase() : ""
+      const esBancario = /banco|cuenta|swift|iban|bic/.test(etiqueta)
+      return Object.fromEntries(Object.entries(registro).map(([clave, contenido]) => [
+        clave,
+        esBancario && clave === "valor" ? "(dato bancario oculto)" : clavesBancarias.some((bancaria) => clave === bancaria || clave.startsWith(`${bancaria}.`)) ? "(dato bancario oculto)" : ocultar(contenido),
+      ]))
+    }
+    return typeof dato === "string" ? dato.replace(/\b\d{6,}(\d{4})\b/g, "******$1") : dato
+  }
+  return ocultar(valor)
 }
 
 function casoDe(args: unknown): string | undefined {
@@ -67,7 +81,8 @@ async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz
     sesion.pendiente = undefined
     sesion.ofrecerCorreo = true
   }
-  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error" }
+  const reglas = await leerReglas(raiz).catch(() => undefined)
+  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args, reglas?.claves_bancarias), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error" }
   return { contenido, visible }
 }
 

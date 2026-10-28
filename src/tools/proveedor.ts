@@ -228,6 +228,7 @@ export const simular_envio = {
       const checklist = path.join(dirCaso, "paquete", "checklist.md")
       if (!(await existe(checklist))) return fallo("primero hay que armar el paquete con proveedor_armar_paquete")
       const estado = (await readFile(checklist, "utf8")).includes("NO LISTO PARA FIRMA") ? "NO listo para firma" : "listo para firma"
+      if (estado !== "listo para firma") return fallo("el paquete no está listo para firma; actualiza los soportes o campos bloqueantes antes de simular el envío")
       const destino = path.join(dirCaso, "ENVIO-SIMULADO.md")
       await escribir(destino, [
         `# Envío simulado — ${args.caso}`,

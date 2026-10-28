@@ -121,5 +121,6 @@ export function sinDatosBancarios(mapeo: Mapeo, esBancaria: (clave: string) => b
 /** Valor a escribir en el formulario: los campos por confirmar llevan el valor propuesto (RN1). */
 export function valorParaFormulario(mapeo: Mapeo, etiqueta: string): string {
   const campo = [...mapeo.llenos, ...mapeo.requiere_confirmacion].find((c) => c.etiqueta === etiqueta)
+  if (campo?.estado === "requiere_confirmacion" && campo.nota?.startsWith("Identificador extranjero")) return ""
   return campo?.valor ?? ""
 }
