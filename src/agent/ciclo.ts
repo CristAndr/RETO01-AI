@@ -72,10 +72,10 @@ async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz
   const contenido = herramienta
     ? await herramienta.ejecutar(llamada.args, { directory: raiz, sessionId: sesion.id, remitente })
     : JSON.stringify({ ok: false, error: `herramienta desconocida: ${llamada.nombre}` })
-  const r = JSON.parse(contenido) as { ok: boolean; error?: string; data?: { resumen?: string } }
+  const r = JSON.parse(contenido) as { ok: boolean; error?: string; data?: { resumen?: string; listo_para_firma?: boolean } }
   const caso = casoDe(llamada.args)
-  // Tras armar el paquete (o si un envío fue rechazado) el turno termina pidiendo confirmación.
-  if (caso && ((llamada.nombre === "proveedor_armar_paquete" && r.ok) || (llamada.nombre === "proveedor_simular_envio" && !r.ok && r.error === "requiere confirmación explícita"))) {
+  // Solo un paquete listo puede esperar confirmación de envío.
+  if (caso && ((llamada.nombre === "proveedor_armar_paquete" && r.ok && r.data?.listo_para_firma === true) || (llamada.nombre === "proveedor_simular_envio" && !r.ok && r.error === "requiere confirmación explícita"))) {
     sesion.pendiente = caso
     sesion.pendienteDesde = Date.now()
   }
@@ -86,7 +86,7 @@ async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz
     sesion.ofrecerCorreo = true
   }
   const reglas = await leerReglas(raiz).catch(() => undefined)
-  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args, reglas?.claves_bancarias), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error" }
+  const visible = { nombre: llamada.nombre, args: enmascarar(llamada.args, reglas?.claves_bancarias), ok: r.ok, resumen: r.ok ? r.data?.resumen ?? "ok" : r.error ?? "error", resultado: r.ok ? r.data : { error: r.error ?? "error" } }
   return { contenido, visible }
 }
 
@@ -138,9 +138,17 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
         toolCalls.push(visible)
         if (!visible.ok) break
       }
-      sesion.pendiente = caso
-      sesion.pendienteDesde = Date.now()
-      reply = `El paquete de ${caso} quedó preparado. Revisa los campos, soportes y checklist mostrados. ¿Confirmas simular el envío cuando esté listo para firma?`
+      const paquete = toolCalls.find((tool) => tool.nombre === "proveedor_armar_paquete")?.resultado as { data?: { listo_para_firma?: boolean; checklist?: { faltantes?: string[]; soportes?: { tipo: string; estado: string }[] } } } | undefined
+      const listo = paquete?.data?.listo_para_firma === true
+      if (listo) {
+        sesion.pendiente = caso
+        sesion.pendienteDesde = Date.now()
+        reply = `El paquete de ${caso} quedó listo para firma. Revisa el checklist. ¿Confirmas simular el envío?`
+      } else {
+        const faltantes = paquete?.data?.checklist?.faltantes ?? []
+        const bloqueos = paquete?.data?.checklist?.soportes?.filter((soporte) => soporte.estado === "ausente" || soporte.estado === "vencido").map((soporte) => `${soporte.tipo} (${soporte.estado})`) ?? []
+        reply = `El paquete de ${caso} quedó preparado, pero no está listo para firma. Corrige: ${[...bloqueos, ...faltantes].join(", ") || "los hallazgos del checklist"}. No se habilitó ningún envío.`
+      }
     } else try {
       const system: Mensaje = { rol: "system", texto: await systemPrompt(raiz, Boolean(remitente)) }
       let terminado = false
