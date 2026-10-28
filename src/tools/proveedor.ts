@@ -139,23 +139,17 @@ export const mapear_campos = {
 
 export const generar_formulario = {
   description: "Genera el formulario lleno en el formato del cliente (xlsx o pdf) o, si es portal, los valores listos para copiar.",
-  args: {
-    caso: argCaso,
-    mapeo: z.array(z.object({ etiqueta: z.string(), valor: z.string().optional() }))
-      .describe("Mapeo devuelto por proveedor_mapear_campos; los valores se recalculan desde el maestro"),
-  },
-  async execute(args: { caso: string; mapeo: { etiqueta: string; valor?: string }[] }, ctx: ContextoHerramienta): Promise<string> {
+  args: { caso: argCaso },
+  async execute(args: { caso: string }, ctx: ContextoHerramienta): Promise<string> {
     return ejecutar(ctx, "proveedor_generar_formulario", args.caso, async () => {
       const r = await generar(ctx.directory, args.caso)
-      const oficiales = [...r.mapeo.llenos, ...r.mapeo.requiere_confirmacion]
-      const ignorados = args.mapeo.filter((m) => m.valor !== undefined && oficiales.find((o) => o.etiqueta === m.etiqueta)?.valor !== m.valor).length
       const aviso = r.soportado ? undefined : "formato no soportado: el portal web no se automatiza; se generaron los valores listos para copiar"
       return exito({
         ruta: r.ruta,
         formato: r.formato,
         soportado: r.soportado,
         aviso,
-        valores_del_modelo_ignorados: ignorados,
+        valores_del_modelo_ignorados: 0,
         resumen: `${r.ruta} (${resumenMapeo(r.mapeo)})${aviso ? " — formato no soportado" : ""}`,
       })
     })

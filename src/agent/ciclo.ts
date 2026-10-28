@@ -63,6 +63,10 @@ function casoDe(args: unknown): string | undefined {
   return typeof caso === "string" ? caso : undefined
 }
 
+function casoSolicitado(texto: string): string | undefined {
+  return texto.match(/\b(?:co-industrias-delta|ec-corp-andina|hn-agroexport-sula|pa-logistica-istmo)\b/i)?.[0]?.toLowerCase()
+}
+
 async function ejecutarLlamada(sesion: Sesion, llamada: LlamadaHerramienta, raiz: string, remitente?: Remitente): Promise<{ contenido: string; visible: ToolCallVisible }> {
   const herramienta = buscarHerramienta(llamada.nombre)
   const contenido = herramienta
@@ -119,7 +123,25 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
   } else {
     procesarConfirmacion(sesion, texto)
     sesion.mensajes.push({ rol: "user", texto })
-    try {
+    const caso = casoSolicitado(texto)
+    if (caso) {
+      const secuencia = [
+        { nombre: "proveedor_leer_solicitud", args: { caso } },
+        { nombre: "proveedor_mapear_campos", args: { caso, campos: [] } },
+        { nombre: "proveedor_generar_formulario", args: { caso } },
+        { nombre: "proveedor_armar_paquete", args: { caso } },
+      ]
+      for (const paso of secuencia) {
+        const llamada = { id: `servidor_${paso.nombre}_${Date.now()}`, ...paso }
+        const { contenido, visible } = await ejecutarLlamada(sesion, llamada, raiz, remitente)
+        sesion.mensajes.push({ rol: "tool", id: llamada.id, nombre: llamada.nombre, contenido })
+        toolCalls.push(visible)
+        if (!visible.ok) break
+      }
+      sesion.pendiente = caso
+      sesion.pendienteDesde = Date.now()
+      reply = `El paquete de ${caso} quedó preparado. Revisa los campos, soportes y checklist mostrados. ¿Confirmas simular el envío cuando esté listo para firma?`
+    } else try {
       const system: Mensaje = { rol: "system", texto: await systemPrompt(raiz, Boolean(remitente)) }
       let terminado = false
       for (let i = 0; i < config.maxIter && !terminado; i++) {

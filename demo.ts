@@ -51,7 +51,7 @@ async function procesarCaso(caso: string): Promise<void> {
   const sol = parse<Solicitud>(await proveedor.leer_solicitud.execute({ caso }, ctx))
   if (!sol.ok) return console.log(`  error: ${sol.error}`)
   const map = parse<MapeoR>(await proveedor.mapear_campos.execute({ caso, campos: sol.data.campos }, ctx))
-  const gen = parse<Formulario>(await proveedor.generar_formulario.execute({ caso, mapeo: [] }, ctx))
+  const gen = parse<Formulario>(await proveedor.generar_formulario.execute({ caso }, ctx))
   const paq = parse<Paquete>(await proveedor.armar_paquete.execute({ caso }, ctx))
   console.log(`  ${sol.data.resumen}`)
   console.log(`  mapeo: ${map.data.resumen}`)
