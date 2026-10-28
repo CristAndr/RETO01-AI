@@ -95,6 +95,12 @@ async function pruebaRegresionHitl(): Promise<void> {
   caducada.pendienteDesde = Date.now() - 10 * 60_000 - 1
   const envioCaducado = await ejecutarTurno(caducada, "envía", modeloProhibido, raiz)
   verificar(envioCaducado.toolCalls.length === 0 && /confirmación del paquete caducó/.test(envioCaducado.reply), "confirmación caducada no invoca herramientas ni modelo")
+
+  const confirmacionLista = obtenerSesion("regresion-hitl-envio-mal-codificado")
+  confirmacionLista.pendiente = "co-industrias-delta"
+  confirmacionLista.pendienteDesde = Date.now()
+  const envioMalCodificado = await ejecutarTurno(confirmacionLista, "envÃ­a", modeloProhibido, raiz)
+  verificar(envioMalCodificado.toolCalls.some((tool) => tool.nombre === "proveedor_simular_envio") && /Envío simulado generado/.test(envioMalCodificado.reply), "intención de envío mal codificada confirma solo el caso pendiente")
 }
 
 async function pruebasDeError(): Promise<void> {

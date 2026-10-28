@@ -67,6 +67,11 @@ function casoSolicitado(texto: string): string | undefined {
   return texto.match(/\b(?:co-industrias-delta|ec-corp-andina|hn-agroexport-sula|pa-logistica-istmo)\b/i)?.[0]?.toLowerCase()
 }
 
+function esIntentoEnvio(texto: string): boolean {
+  const normalizado = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim()
+  return /^env/.test(normalizado) && !/\b(no|todavia no|aun no|cancela|espera|detente)\b/.test(normalizado)
+}
+
 function pendientePrevioDesdeVigente(sesion: Sesion): boolean {
   return sesion.pendienteDesde !== undefined && Date.now() - sesion.pendienteDesde < VIGENCIA_CONFIRMACION_MS
 }
@@ -99,7 +104,7 @@ function procesarConfirmacion(sesion: Sesion, texto: string): void {
   revocarPermisos(sesion.id)
   // Una conversación retomada horas después no confirma un envío viejo.
   const vigente = sesion.pendienteDesde !== undefined && Date.now() - sesion.pendienteDesde < VIGENCIA_CONFIRMACION_MS
-  if (sesion.pendiente && vigente && esConfirmacion(texto)) otorgarConfirmacion(sesion.id, sesion.pendiente)
+  if (sesion.pendiente && vigente && (esConfirmacion(texto) || esIntentoEnvio(texto))) otorgarConfirmacion(sesion.id, sesion.pendiente)
   // HU-7: el único destinatario válido es el correo que el usuario escribió en este mensaje.
   const correo = correoDelMensaje(texto)
   if (correo) otorgarPermiso(sesion.id, "correo", correo)
@@ -127,7 +132,8 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
     reply = `Esta sesión alcanzó el tope de ${config.maxTokensSesion} tokens. Abre una sesión nueva para continuar.`
   } else {
     const pendientePrevio = sesion.pendiente
-    const confirmacionValida = Boolean(pendientePrevio && pendientePrevioDesdeVigente(sesion) && esConfirmacion(texto))
+    const intentoEnvio = esIntentoEnvio(texto)
+    const confirmacionValida = Boolean(pendientePrevio && pendientePrevioDesdeVigente(sesion) && (esConfirmacion(texto) || intentoEnvio))
     procesarConfirmacion(sesion, texto)
     sesion.mensajes.push({ rol: "user", texto })
     if (confirmacionValida && pendientePrevio) {
@@ -138,7 +144,7 @@ export async function ejecutarTurno(sesion: Sesion, texto: string, llm: LlmAdapt
       reply = visible.ok ? `Envío simulado generado en ${visible.resumen.replace(/^envío simulado en /, "")}.` : visible.resumen
     } else if (pendientePrevio && esConfirmacion(texto)) {
       reply = "La confirmación del paquete caducó. Procesa nuevamente el caso antes de solicitar el envío."
-    } else if (!pendientePrevio && esConfirmacion(texto)) {
+    } else if (!pendientePrevio && (esConfirmacion(texto) || intentoEnvio)) {
       reply = "No hay un paquete listo pendiente de confirmación. Procesa un caso antes de solicitar el envío."
     }
     if (!pendientePrevio && /^\s*env/i.test(texto)) {
